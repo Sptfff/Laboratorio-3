@@ -62,16 +62,18 @@ def construir_indice(recursos: pd.DataFrame) -> tuple:
 
 def crear_perfil(intereses: str, vectorizador: TfidfVectorizer) -> np.ndarray:
     """Devuelve un vector de una dimensión con el vocabulario del catálogo."""
-    # TODO 1: use transform sobre una lista con el texto de intereses.
-    # Convierta la salida a un array y devuelva su primera fila; no vuelva a ajustar.
-    raise NotImplementedError("Complete crear_perfil en motor.py.")
+    # Se usa transform (no fit_transform) para proyectar los intereses en el mismo
+    # espacio TF-IDF aprendido del catálogo. Términos fuera del vocabulario se
+    # ignoran, por lo que intereses vacíos o desconocidos producen un vector nulo.
+    return vectorizador.transform([intereses]).toarray()[0]
 
 
 def calcular_puntuaciones(perfil: np.ndarray, matriz: np.ndarray) -> np.ndarray:
     """Devuelve una puntuación por fila del catálogo, en el mismo orden."""
-    # TODO 2: calcule cosine_similarity entre [perfil] y matriz.
-    # Devuelva un array de una dimensión, también cuando el perfil sea nulo.
-    raise NotImplementedError("Complete calcular_puntuaciones en motor.py.")
+    # cosine_similarity espera matrices: [perfil] es una matriz de 1 fila y el
+    # resultado (1 x n_recursos) se aplana con [0]. Con un perfil nulo,
+    # scikit-learn devuelve ceros (no NaN), por lo que no se requiere un caso especial.
+    return cosine_similarity([perfil], matriz)[0]
 
 
 def recomendar(
@@ -82,19 +84,30 @@ def recomendar(
     top_k: int = 3,
 ) -> list[dict]:
     """Devuelve hasta top_k resultados positivos usando construir_resultado."""
-    # TODO 3: obtenga las puntuaciones; ordene de mayor a menor y desempate por id.
-    # Incluya solo puntuaciones > 0 y como máximo top_k resultados.
-    # Use construir_resultado para incluir título, puntuación y explicación.
-    # Un perfil vacío o sin términos reconocidos debe producir la lista [].
-    raise NotImplementedError("Complete recomendar en motor.py.")
+    puntuaciones = calcular_puntuaciones(perfil, matriz)
+    # Solo se consideran recursos con puntuación positiva: un cero indica que no
+    # hay términos compartidos y no debe usarse para completar posiciones.
+    candidatos = [indice for indice, puntuacion in enumerate(puntuaciones)
+                  if puntuacion > 0]
+    # Orden descendente por puntuación (sin redondear) y, ante empate, id ascendente.
+    candidatos.sort(key=lambda indice: (-puntuaciones[indice],
+                                        recursos.iloc[indice]["id"]))
+    return [
+        construir_resultado(indice, puntuaciones[indice], perfil, recursos,
+                            matriz, vectorizador)
+        for indice in candidatos[:top_k]
+    ]
 
 
 def actualizar_perfil(perfil: np.ndarray, vector_recurso: np.ndarray) -> np.ndarray:
     """Actualiza el perfil cuando el usuario pulsa Me interesa sobre un recurso."""
-    # TODO 4: mezcle 0.4 del perfil previo y 0.6 del vector del recurso.
-    # Aplique normalize a una matriz de una fila y devuelva su primera fila.
-    # El valor 0.6 es un parámetro didáctico, no un resultado experimental.
-    raise NotImplementedError("Complete actualizar_perfil en motor.py.")
+    # alpha = 0.6 es un parámetro didáctico que da más peso a la interacción
+    # reciente; no es un valor obtenido experimentalmente.
+    alpha = 0.6
+    mezcla = (1 - alpha) * np.asarray(perfil) + alpha * np.asarray(vector_recurso)
+    # Normalizar a norma L2 unitaria mantiene una magnitud comparable entre
+    # actualizaciones sucesivas; el coseno depende solo de la dirección.
+    return normalize([mezcla])[0]
 
 
 def obtener_indice(recursos: pd.DataFrame, recurso_id: str) -> int:
